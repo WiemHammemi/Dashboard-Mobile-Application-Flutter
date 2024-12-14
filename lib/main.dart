@@ -1,5 +1,6 @@
 
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:sleek_circular_slider/sleek_circular_slider.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
@@ -30,7 +31,7 @@ class _BluetoothDashboardState extends State<BluetoothDashboard> {
   List<BluetoothDevice> _devices = [];
   BluetoothDevice? _deviceConnected;
 
-  // Mesures simulées
+  // Mesures reçues
   String temperature = '0';
   String humidity = '0';
   String gasLevel = '0';
@@ -60,6 +61,54 @@ class _BluetoothDashboardState extends State<BluetoothDashboard> {
     await Permission.bluetoothConnect.request();
   }
 
+
+void _handleDataReceived(Uint8List data) {
+  String receivedData = String.fromCharCodes(data).trim();
+  List<String> keyValuePairs = receivedData.split(',');
+
+  for (String pair in keyValuePairs) {
+    List<String> keyValue = pair.split(':');
+    if (keyValue.length == 2) {
+      String key = keyValue[0];
+      String value = keyValue[1];
+
+      setState(() {
+        if (key == 'Temp') {
+          temperature = value;
+        } else if (key == 'Hum') {
+          humidity = value;
+        } else if (key == 'Gas') {
+          gasLevel = value;
+        }
+      });
+    }
+  }
+}
+
+void _connectToDevice(BluetoothDevice device) async {
+  setState(() => _isConnecting = true);
+
+  try {
+    _connection = await BluetoothConnection.toAddress(device.address);
+    _deviceConnected = device;
+
+    _connection?.input?.listen(_handleDataReceived).onDone(() {
+      // Reset values and handle disconnection
+      setState(() {
+        temperature = '0';
+        humidity = '0';
+        gasLevel = '0';
+        _deviceConnected = null;
+      });
+    });
+
+    setState(() => _isConnecting = false);
+  } catch (e) {
+    setState(() => _isConnecting = false);
+    debugPrint('Erreur lors de la connexion : $e');
+  }
+}
+
   void _checkThresholds() {
     List<String> alerts = [];
 
@@ -79,91 +128,70 @@ class _BluetoothDashboardState extends State<BluetoothDashboard> {
     }
   }
 
- void _showAlert(List<String> alerts) {
-  showDialog(
-    context: context,
-    builder: (context) {
-      return AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        title: Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.red, size: 30),
-            SizedBox(width: 10),
-            Text(
-              'Alerte',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Colors.red,
+  void _showAlert(List<String> alerts) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          title: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.red, size: 30),
+              SizedBox(width: 10),
+              Text(
+                'Alerte',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red,
+                ),
               ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Divider(color: Colors.redAccent, thickness: 1.2),
-            SizedBox(height: 10),
-            Text(
-              'Les seuils suivants ont été dépassés :',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 10),
-            ...alerts.map((alert) => Row(
-                  children: [
-                    Icon(Icons.circle, size: 10, color: Colors.orange),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        alert,
-                        style: TextStyle(fontSize: 16, color: Colors.black),
-                      ),
-                    ),
-                  ],
-                )),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              setState(() => alert = false);
-              Navigator.of(context).pop();
-            },
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-              backgroundColor: Colors.red,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            child: Text('OK', style: TextStyle(fontSize: 16)),
+            ],
           ),
-        ],
-      );
-    },
-  );
-}
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        centerTitle: true,
-        title: const Text('Dashboard Bluetooth'),
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            _controlBT(),
-            _infoDevice(),
-            _buildCircularSlider("Température", temperature, "˚C", "#ef6c00", "#ffb74d"),
-            _buildCircularSlider("Humidité", humidity, "%", "#0277bd", "#4FC3F7"),
-            _buildCircularSlider("Gaz", gasLevel, "ppm", "#8e44ad", "#9b59b6", maxValue: 400),
-            _listDevices(),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Divider(color: Colors.redAccent, thickness: 1.2),
+              SizedBox(height: 10),
+              Text(
+                'Les seuils suivants ont été dépassés :',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 10),
+              ...alerts.map((alert) => Row(
+                    children: [
+                      Icon(Icons.circle, size: 10, color: Colors.orange),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          alert,
+                          style: TextStyle(fontSize: 16, color: Colors.black),
+                        ),
+                      ),
+                    ],
+                  )),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                setState(() => alert = false);
+                Navigator.of(context).pop();
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: Text('OK', style: TextStyle(fontSize: 16)),
+            ),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 
+  
   Widget _buildCircularSlider(String label, String value, String unit, String trackColor, String progressColor, {double maxValue = 100}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 16.0),
@@ -288,14 +316,7 @@ class _BluetoothDashboardState extends State<BluetoothDashboard> {
                         ),
                         trailing: ElevatedButton(
                           onPressed: () async {
-                            setState(() => _isConnecting = true);
-
-                            _connection = await BluetoothConnection.toAddress(device.address);
-                            _deviceConnected = device;
-                            _devices = [];
-                            _isConnecting = false;
-
-                            setState(() {});
+                            _connectToDevice(device);
                           },
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                           child: const Text('Connecter', style: TextStyle(color: Colors.white)),
@@ -304,6 +325,28 @@ class _BluetoothDashboardState extends State<BluetoothDashboard> {
                   ],
                 ),
         ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        centerTitle: true,
+        title: const Text('Dashboard Bluetooth'),
+      ),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            _controlBT(),
+            _infoDevice(),
+            _buildCircularSlider("Température", temperature, "˚C", "#ef6c00", "#ffb74d"),
+            _buildCircularSlider("Humidité", humidity, "%", "#0277bd", "#4FC3F7"),
+            _buildCircularSlider("Gaz", gasLevel, "ppm", "#8e44ad", "#9b59b6", maxValue: 1000),
+            _listDevices(),
+          ],
+        ),
       ),
     );
   }
