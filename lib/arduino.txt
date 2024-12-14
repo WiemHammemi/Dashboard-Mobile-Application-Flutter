@@ -1,0 +1,91 @@
+a
+#include <DHT.h>
+#include <SoftwareSerial.h>
+
+#define DHTPIN 2       // Pin de connexion du capteur DHT11
+#define DHTTYPE DHT11  // Type de capteur DHT
+DHT dht(DHTPIN, DHTTYPE);
+
+#define MQ135_PIN A0   // Pin analogique du capteur MQ135
+#define BUZZER_PIN 3   // Pin du buzzer
+#define LED_PIN 7      // Pin de la LED
+
+SoftwareSerial BTSerial(10, 11); // RX, TX pour le modul*e HC-05
+
+// Seuils
+const float TEMP_THRESHOLD = 35.0;
+const float HUMID_THRESHOLD = 70.0;
+const int GAS_THRESHOLD = 300;
+
+// Variables de temporisation
+unsigned long previousMillisTemp = 0;
+unsigned long previousMillisHumid = 0;
+unsigned long previousMillisGas = 0;
+unsigned long interval = 3000; // Intervalle de 3 secondes
+
+void setup() {
+  Serial.begin(9600);  // Initialiser le moniteur série pour le débogage
+  BTSerial.begin(9600); // Initialiser la communication Bluetooth
+  dht.begin();
+  pinMode(MQ135_PIN, INPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
+}
+
+void loop() {
+  unsigned long currentMillis = millis();
+
+  // Lecture et envoi de la température
+  if (currentMillis - previousMillisTemp >= interval) {
+    previousMillisTemp = currentMillis;
+    float temperature = dht.readTemperature();
+    if (!isnan(temperature)) {
+      sendData("Temp", temperature);
+      checkThreshold("Temp", temperature, TEMP_THRESHOLD);
+    } else {
+      Serial.println("Erreur de lecture du capteur de température");
+    }
+  }
+
+  // Lecture et envoi de l'humidité
+  if (currentMillis - previousMillisHumid >= interval * 2) { // Intervale différent pour séparer les tâches
+    previousMillisHumid = currentMillis;
+    float humidity = dht.readHumidity();
+    if (!isnan(humidity)) {
+      sendData("Hum", humidity);
+      checkThreshold("Hum", humidity, HUMID_THRESHOLD);
+    } else {
+      Serial.println("Erreur de lecture du capteur d'humidité");
+    }
+  }
+
+  // Lecture et envoi du niveau de gaz
+  if (currentMillis - previousMillisGas >= interval * 3) { // Intervale différent pour séparer les tâches
+    previousMillisGas = currentMillis;
+    int gasLevel = analogRead(MQ135_PIN);
+    sendData("Gas", gasLevel);
+    checkThreshold("Gas", gasLevel, GAS_THRESHOLD);
+  }
+}
+
+// Fonction pour envoyer les données
+void sendData(String type, float value) {
+  String dataToSend = type + ":" + String(value);
+  BTSerial.println(dataToSend);
+  Serial.print("Donnée envoyée:");
+  Serial.println(dataToSend);
+  delay(3000);
+}
+
+// Fonction pour vérifier les seuils et allumer/éteindre la LED
+void checkThreshold(String type, float value, float threshold) {
+  if (value >= threshold) {
+    Serial.println(type + " dépasse le seuil ! ");
+    digitalWrite(LED_PIN, HIGH);
+    tone(BUZZER_PIN, 1000); // 1 kHz
+  } else {
+    Serial.println("pas de dépassement de seuil ! ");
+    digitalWrite(LED_PIN, LOW);
+    noTone(BUZZER_PIN);
+  }
+}
